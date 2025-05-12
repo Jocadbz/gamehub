@@ -1,0 +1,5 @@
+{
+    "title": "Gamehub",
+    "port": 8080,
+    "base_url": "/"
+}

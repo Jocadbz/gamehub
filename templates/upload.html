@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Game - {{.Title}}</title>
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>{{.Title}}</h1>
+        <nav>
+            <a href="{{.BaseURL}}">Home</a>
+            <a href="{{.BaseURL}}/upload">Upload Game</a>
+        </nav>
+    </header>
+    <main class="upload-form">
+        <h2>Upload a New Game</h2>
+        <form action="{{.BaseURL}}/upload-game" method="POST" enctype="multipart/form-data">
+            <label for="name">Game Name:</label>
+            <input type="text" id="name" name="name" required>
+            
+            <label for="description">Description:</label>
+            <textarea id="description" name="description" required></textarea>
+            
+            <label for="image">Main Image:</label>
+            <input type="file" id="image" name="image" accept="image/*" required>
+            
+            <label for="download_path">Download File Path on Server:</label>
+            <input type="text" id="download_path" name="download_path" placeholder="/path/to/game/file" required>
+            
+            <label for="screenshot1">Screenshot 1:</label>
+            <input type="file" id="screenshot1" name="screenshot1" accept="image/*">
+            
+            <label for="screenshot2">Screenshot 2:</label>
+            <input type="file" id="screenshot2" name="screenshot2" accept="image/*">
+            
+            <label for="screenshot3">Screenshot 3:</label>
+            <input type="file" id="screenshot3" name="screenshot3" accept="image/*">
+            
+            <label for="screenshot4">Screenshot 4:</label>
+            <input type="file" id="screenshot4" name="screenshot4" accept="image/*">
+            
+            <label for="screenshot5">Screenshot 5:</label>
+            <input type="file" id="screenshot5" name="screenshot5" accept="image/*">
+            
+            <label for="screenshot6">Screenshot 6:</label>
+            <input type="file" id="screenshot6" name="screenshot6" accept="image/*">
+            
+            <button type="submit">Upload Game</button>
+        </form>
+    </main>
+</body>
+</html>

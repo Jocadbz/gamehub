@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Game.Name}} - {{.Title}}</title>
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>{{.Title}}</h1>
+        <nav>
+            <a href="{{.BaseURL}}">Home</a>
+            <a href="{{.BaseURL}}/upload">Upload Game</a>
+        </nav>
+    </header>
+    <main class="game-detail">
+        <h2>{{.Game.Name}}</h2>
+        <img src="{{.Game.ImageData}}" alt="{{.Game.Name}}" class="main-image">
+        <p>{{.Game.Description}}</p>
+        <div class="screenshots">
+            {{range .Game.Screenshots}}
+            <img src="{{.}}" alt="Screenshot">
+            {{end}}
+        </div>
+        <a href="{{.BaseURL}}/download/{{.Game.ID}}" class="download-btn">Download</a>
+        <div class="action-buttons">
+            <a href="{{.BaseURL}}/edit/{{.Game.ID}}" class="edit-btn">Edit</a>
+            <form action="{{.BaseURL}}/delete/{{.Game.ID}}" method="POST" style="display:inline;">
+                <button type="submit" class="delete-btn" onclick="return confirm('Are you sure you want to delete this game? This will only remove it from the database, not the file from the server.');">Delete</button>
+            </form>
+        </div>
+    </main>
+</body>
+</html>

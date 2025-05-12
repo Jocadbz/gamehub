@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="{{.BaseURL}}/static/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>{{.Title}}</h1>
+        <nav>
+            <a href="{{.BaseURL}}">Home</a>
+            <a href="{{.BaseURL}}/upload">Upload Game</a>
+        </nav>
+    </header>
+    <main class="grid-container">
+        {{range .Games}}
+        <div class="game-card">
+            <a href="{{$.BaseURL}}/game/{{.ID}}">
+                <img src="{{.ImageData}}" alt="{{.Name}}">
+                <h2>{{.Name}}</h2>
+            </a>
+        </div>
+        {{end}}
+    </main>
+</body>
+</html>
