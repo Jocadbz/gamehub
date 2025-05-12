@@ -16,7 +16,7 @@ All the alternatives I looked into insisted on me having a IGDB or Mobygames API
 
 ![Upload Page](Screenshots/upload.png "Upload Page")
 
-![Game Page](Screenshots/Gamepage.png "Game Page")
+![Game Page](Screenshots/gamepage.png "Game Page")
 
 
 ## Installing
