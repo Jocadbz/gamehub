@@ -247,22 +247,29 @@ func uploadGameHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	gameID, _ := result.LastInsertId()
-	for i := 0; i < 6; i++ {
-		key := fmt.Sprintf("screenshot%d", i+1)
-		screenshotFile, _, err := r.FormFile(key)
-		if err != nil {
-			continue
-		}
-		defer screenshotFile.Close()
+	
+	// Handle multiple screenshots
+	screenshotFiles, ok := r.MultipartForm.File["screenshots"]
+	if ok {
+		for _, screenshotFileHeader := range screenshotFiles {
+			if len(screenshotFileHeader.Filename) == 0 {
+				continue
+			}
+			screenshotFile, err := screenshotFileHeader.Open()
+			if err != nil {
+				continue
+			}
+			defer screenshotFile.Close()
 
-		screenshotData, err := io.ReadAll(screenshotFile)
-		if err != nil {
-			continue
-		}
+			screenshotData, err := io.ReadAll(screenshotFile)
+			if err != nil {
+				continue
+			}
 
-		_, err = db.Exec("INSERT INTO screenshots (game_id, image_data) VALUES (?, ?)", gameID, screenshotData)
-		if err != nil {
-			continue
+			_, err = db.Exec("INSERT INTO screenshots (game_id, image_data) VALUES (?, ?)", gameID, screenshotData)
+			if err != nil {
+				continue
+			}
 		}
 	}
 
@@ -334,17 +341,31 @@ func updateGameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle screenshot updates if provided
-	for i := 0; i < 6; i++ {
-		key := fmt.Sprintf("screenshot%d", i+1)
-		screenshotFile, _, err := r.FormFile(key)
-		if err == nil {
-			defer screenshotFile.Close()
-			screenshotData, err := io.ReadAll(screenshotFile)
-			if err == nil {
-				_, err = db.Exec("INSERT OR REPLACE INTO screenshots (game_id, image_data) VALUES (?, ?)", idStr, screenshotData)
-				if err != nil {
+	// Handle screenshot updates if provided - clear existing and add new ones
+	if r.MultipartForm != nil {
+		screenshotFiles, ok := r.MultipartForm.File["screenshots"]
+		if ok && len(screenshotFiles) > 0 {
+			// Delete existing screenshots for this game
+			_, err = db.Exec("DELETE FROM screenshots WHERE game_id = ?", idStr)
+			if err != nil {
+				log.Printf("Error deleting old screenshots: %v", err)
+			}
+			
+			// Add new screenshots
+			for _, screenshotFileHeader := range screenshotFiles {
+				if len(screenshotFileHeader.Filename) == 0 {
 					continue
+				}
+				screenshotFile, err := screenshotFileHeader.Open()
+				if err == nil {
+					defer screenshotFile.Close()
+					screenshotData, err := io.ReadAll(screenshotFile)
+					if err == nil {
+						_, err = db.Exec("INSERT INTO screenshots (game_id, image_data) VALUES (?, ?)", idStr, screenshotData)
+						if err != nil {
+							log.Printf("Error inserting new screenshot: %v", err)
+						}
+					}
 				}
 			}
 		}
