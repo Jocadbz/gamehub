@@ -8,10 +8,13 @@
 </head>
 <body>
     <header>
-        <h1>{{.Title}}</h1>
+        <h1><a href="{{.BaseURL}}">{{.Title}}</a></h1>
         <nav>
             <a href="{{.BaseURL}}">Home</a>
             <a href="{{.BaseURL}}/upload">Upload Game</a>
+            <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">
+                <span id="themeIcon">&#9790;</span>
+            </button>
         </nav>
     </header>
     <main class="upload-form">
@@ -39,6 +42,31 @@
     </main>
 
     <script>
+    (function() {
+        // Theme toggle
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const html = document.documentElement;
+
+        function setTheme(theme) {
+            html.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            themeIcon.innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+        }
+
+        const saved = localStorage.getItem('theme');
+        if (saved) {
+            setTheme(saved);
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            setTheme('dark');
+        }
+
+        themeToggle.addEventListener('click', function() {
+            const current = html.getAttribute('data-theme');
+            setTheme(current === 'dark' ? 'light' : 'dark');
+        });
+
+        // Form validation
         document.getElementById('editForm').addEventListener('submit', function(e) {
             const screenshotInput = document.getElementById('screenshots');
             const files = screenshotInput.files;
@@ -62,6 +90,7 @@
                 }
             }
         });
+    })();
     </script>
 </body>
 </html>

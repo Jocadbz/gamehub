@@ -8,21 +8,174 @@
 </head>
 <body>
     <header>
-        <h1>{{.Title}}</h1>
+        <h1><a href="{{.BaseURL}}">{{.Title}}</a></h1>
         <nav>
             <a href="{{.BaseURL}}">Home</a>
             <a href="{{.BaseURL}}/upload">Upload Game</a>
+            <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">
+                <span id="themeIcon">&#9790;</span>
+            </button>
         </nav>
     </header>
-    <main class="grid-container">
-        {{range .Games}}
-        <div class="game-card">
-            <a href="{{$.BaseURL}}/game/{{.ID}}">
-                <img src="{{.ImageData}}" alt="{{.Name}}">
-                <h2>{{.Name}}</h2>
-            </a>
+
+    <div class="toolbar">
+        <div class="toolbar-group">
+            <span class="toolbar-label">Sort</span>
+            <select id="sortSelect">
+                <option value="date-desc" {{if and (eq .Sort "date") (eq .Order "desc")}}selected{{end}}>Newest first</option>
+                <option value="date-asc" {{if and (eq .Sort "date") (eq .Order "asc")}}selected{{end}}>Oldest first</option>
+                <option value="name-asc" {{if and (eq .Sort "name") (eq .Order "asc")}}selected{{end}}>Name A-Z</option>
+                <option value="name-desc" {{if and (eq .Sort "name") (eq .Order "desc")}}selected{{end}}>Name Z-A</option>
+            </select>
         </div>
+
+        <div class="toolbar-separator"></div>
+
+        <input type="text" class="search-input" id="searchInput" placeholder="Search games..." autocomplete="off">
+
+        <div class="toolbar-separator"></div>
+
+        <div class="toolbar-group">
+            <span class="toolbar-label">View</span>
+            <div class="view-toggle">
+                <button class="view-btn active" id="gridViewBtn" title="Grid view">&#9638;</button>
+                <button class="view-btn" id="listViewBtn" title="List view">&#9776;</button>
+            </div>
+        </div>
+
+        <span class="game-count" id="gameCount">{{len .Games}} game{{if ne (len .Games) 1}}s{{end}}</span>
+    </div>
+
+    <main class="grid-container" id="gameContainer">
+        {{if .Games}}
+            {{range .Games}}
+            <div class="game-card" data-name="{{.Name}}" data-date="{{.CreatedAt}}">
+                <a href="{{$.BaseURL}}/game/{{.ID}}">
+                    <img src="{{.ImageData}}" alt="{{.Name}}" loading="lazy">
+                    <div class="list-card-info">
+                        <h2>{{.Name}}</h2>
+                        <span class="card-date">{{.CreatedAt}}</span>
+                    </div>
+                </a>
+            </div>
+            {{end}}
+        {{else}}
+            <div class="empty-state">
+                <h2>No games yet</h2>
+                <p>Get started by <a href="{{.BaseURL}}/upload">uploading your first game</a>.</p>
+            </div>
         {{end}}
     </main>
+
+    <div class="no-results" id="noResults">No games match your search.</div>
+
+    <script>
+    (function() {
+        // === Theme Toggle ===
+        const themeToggle = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const html = document.documentElement;
+
+        function setTheme(theme) {
+            html.setAttribute('data-theme', theme);
+            localStorage.setItem('theme', theme);
+            // Moon for light (click to go dark), Sun for dark (click to go light)
+            themeIcon.innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
+        }
+
+        // Load saved theme or respect system preference
+        const saved = localStorage.getItem('theme');
+        if (saved) {
+            setTheme(saved);
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            setTheme('dark');
+        }
+
+        themeToggle.addEventListener('click', function() {
+            const current = html.getAttribute('data-theme');
+            setTheme(current === 'dark' ? 'light' : 'dark');
+        });
+
+        // === Sort ===
+        const sortSelect = document.getElementById('sortSelect');
+        sortSelect.addEventListener('change', function() {
+            const parts = this.value.split('-');
+            const url = new URL(window.location);
+            url.searchParams.set('sort', parts[0]);
+            url.searchParams.set('order', parts[1]);
+            window.location.href = url.toString();
+        });
+
+        // === View Toggle ===
+        const gridBtn = document.getElementById('gridViewBtn');
+        const listBtn = document.getElementById('listViewBtn');
+        const container = document.getElementById('gameContainer');
+
+        function setView(view) {
+            localStorage.setItem('view', view);
+            if (view === 'list') {
+                container.classList.remove('grid-container');
+                container.classList.add('list-container');
+                listBtn.classList.add('active');
+                gridBtn.classList.remove('active');
+            } else {
+                container.classList.remove('list-container');
+                container.classList.add('grid-container');
+                gridBtn.classList.add('active');
+                listBtn.classList.remove('active');
+            }
+        }
+
+        // Load saved view preference
+        const savedView = localStorage.getItem('view');
+        if (savedView) {
+            setView(savedView);
+        }
+
+        gridBtn.addEventListener('click', function() { setView('grid'); });
+        listBtn.addEventListener('click', function() { setView('list'); });
+
+        // === Search / Filter ===
+        const searchInput = document.getElementById('searchInput');
+        const gameCount = document.getElementById('gameCount');
+        const noResults = document.getElementById('noResults');
+        const cards = document.querySelectorAll('.game-card');
+
+        searchInput.addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            let visible = 0;
+
+            cards.forEach(function(card) {
+                const name = (card.getAttribute('data-name') || '').toLowerCase();
+                if (!query || name.includes(query)) {
+                    card.style.display = '';
+                    visible++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+
+            gameCount.textContent = visible + ' game' + (visible !== 1 ? 's' : '');
+            if (visible === 0 && cards.length > 0) {
+                noResults.classList.add('visible');
+            } else {
+                noResults.classList.remove('visible');
+            }
+        });
+
+        // === Keyboard shortcut: focus search with / ===
+        document.addEventListener('keydown', function(e) {
+            if (e.key === '/' && document.activeElement !== searchInput) {
+                e.preventDefault();
+                searchInput.focus();
+            }
+            if (e.key === 'Escape' && document.activeElement === searchInput) {
+                searchInput.value = '';
+                searchInput.dispatchEvent(new Event('input'));
+                searchInput.blur();
+            }
+        });
+    })();
+    </script>
 </body>
 </html>

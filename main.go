@@ -18,12 +18,13 @@ import (
 )
 
 type Game struct {
-	ID            int
-	Name          string
-	Description   string
-	ImageData     string // Base64 encoded image data
-	Screenshots   []string // Base64 encoded screenshot data
-	DownloadPath  string // Path on server for download
+	ID           int
+	Name         string
+	Description  string
+	ImageData    string   // Base64 encoded image data
+	Screenshots  []string // Base64 encoded screenshot data
+	DownloadPath string   // Path on server for download
+	CreatedAt    string   // Timestamp when added
 }
 
 type Config struct {
@@ -64,15 +65,14 @@ func main() {
 	defer db.Close()
 
 	createTables()
+	migrateDB()
 
 	// Handle routes with normalized BaseURL
-	// Use a root handler to catch exact BaseURL or BaseURL/
 	rootPath := config.BaseURL
 	if rootPath == "" {
 		rootPath = "/"
 	}
 	http.HandleFunc(rootPath, homeHandler)
-	// Also handle with trailing slash if BaseURL is not empty
 	if config.BaseURL != "" {
 		http.HandleFunc(config.BaseURL+"/", homeHandler)
 	}
@@ -96,7 +96,8 @@ func createTables() {
 		name TEXT NOT NULL,
 		description TEXT,
 		image_data BLOB,
-		download_path TEXT
+		download_path TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE TABLE IF NOT EXISTS screenshots (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,8 +111,78 @@ func createTables() {
 	}
 }
 
+// migrateDB adds new columns to existing databases that lack them.
+func migrateDB() {
+	// Check if created_at column exists
+	rows, err := db.Query("PRAGMA table_info(games)")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close()
+
+	hasCreatedAt := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			log.Fatal(err)
+		}
+		if name == "created_at" {
+			hasCreatedAt = true
+		}
+	}
+
+	if !hasCreatedAt {
+		_, err := db.Exec("ALTER TABLE games ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+		if err != nil {
+			log.Fatal("Error adding created_at column:", err)
+		}
+		// Backfill existing rows with current timestamp
+		_, err = db.Exec("UPDATE games SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
+		if err != nil {
+			log.Fatal("Error backfilling created_at:", err)
+		}
+		log.Println("Migration: added created_at column to games table")
+	}
+}
+
 func homeHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := db.Query("SELECT id, name, image_data FROM games")
+	// Parse query parameters for sorting
+	sortBy := r.URL.Query().Get("sort")
+	order := r.URL.Query().Get("order")
+
+	// Default sort: newest first
+	if sortBy == "" {
+		sortBy = "date"
+	}
+	if order == "" {
+		order = "desc"
+	}
+
+	// Build ORDER BY clause
+	var orderClause string
+	switch sortBy {
+	case "name":
+		if order == "asc" {
+			orderClause = "ORDER BY name COLLATE NOCASE ASC"
+		} else {
+			orderClause = "ORDER BY name COLLATE NOCASE DESC"
+		}
+	case "date":
+		if order == "asc" {
+			orderClause = "ORDER BY created_at ASC"
+		} else {
+			orderClause = "ORDER BY created_at DESC"
+		}
+	default:
+		orderClause = "ORDER BY created_at DESC"
+	}
+
+	query := fmt.Sprintf("SELECT id, name, image_data, created_at FROM games %s", orderClause)
+	rows, err := db.Query(query)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
@@ -122,12 +193,16 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var g Game
 		var imageData []byte
-		if err := rows.Scan(&g.ID, &g.Name, &imageData); err != nil {
+		var createdAt sql.NullString
+		if err := rows.Scan(&g.ID, &g.Name, &imageData, &createdAt); err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
 		if imageData != nil {
 			g.ImageData = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageData)
+		}
+		if createdAt.Valid {
+			g.CreatedAt = createdAt.String
 		}
 		games = append(games, g)
 	}
@@ -141,10 +216,14 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		Title   string
 		Games   []Game
 		BaseURL string
+		Sort    string
+		Order   string
 	}{
 		Title:   config.Title,
 		Games:   games,
 		BaseURL: config.BaseURL,
+		Sort:    sortBy,
+		Order:   order,
 	})
 }
 
@@ -152,13 +231,17 @@ func gameHandler(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, config.BaseURL+"/game/")
 	var game Game
 	var imageData []byte
-	err := db.QueryRow("SELECT id, name, description, image_data, download_path FROM games WHERE id = ?", idStr).Scan(&game.ID, &game.Name, &game.Description, &imageData, &game.DownloadPath)
+	var createdAt sql.NullString
+	err := db.QueryRow("SELECT id, name, description, image_data, download_path, created_at FROM games WHERE id = ?", idStr).Scan(&game.ID, &game.Name, &game.Description, &imageData, &game.DownloadPath, &createdAt)
 	if err != nil {
 		http.Error(w, "Game not found", http.StatusNotFound)
 		return
 	}
 	if imageData != nil {
 		game.ImageData = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageData)
+	}
+	if createdAt.Valid {
+		game.CreatedAt = createdAt.String
 	}
 
 	rows, err := db.Query("SELECT image_data FROM screenshots WHERE game_id = ?", idStr)
@@ -240,14 +323,14 @@ func uploadGameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO games (name, description, image_data, download_path) VALUES (?, ?, ?, ?)", name, description, imageData, downloadPath)
+	result, err := db.Exec("INSERT INTO games (name, description, image_data, download_path, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)", name, description, imageData, downloadPath)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
 	gameID, _ := result.LastInsertId()
-	
+
 	// Handle multiple screenshots
 	screenshotFiles, ok := r.MultipartForm.File["screenshots"]
 	if ok {
@@ -350,7 +433,7 @@ func updateGameHandler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Printf("Error deleting old screenshots: %v", err)
 			}
-			
+
 			// Add new screenshots
 			for _, screenshotFileHeader := range screenshotFiles {
 				if len(screenshotFileHeader.Filename) == 0 {
