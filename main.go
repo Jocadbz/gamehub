@@ -136,7 +136,10 @@ func migrateDB() {
 	}
 
 	if !hasCreatedAt {
-		_, err := db.Exec("ALTER TABLE games ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+		// SQLite does not allow ALTER TABLE ADD COLUMN with a non-constant
+		// default like CURRENT_TIMESTAMP, so we add with no default and
+		// backfill existing rows immediately.
+		_, err := db.Exec("ALTER TABLE games ADD COLUMN created_at DATETIME")
 		if err != nil {
 			log.Fatal("Error adding created_at column:", err)
 		}
