@@ -1,5 +1,5 @@
 {
     "title": "Gamehub",
     "port": 8080,
-    "base_url": "/"
+    "base_url": "/", "admin_user": "admin", "admin_password": "password"
 }

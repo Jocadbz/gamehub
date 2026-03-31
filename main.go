@@ -2,7 +2,6 @@ package main
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,22 +20,29 @@ type Game struct {
 	ID           int
 	Name         string
 	Description  string
-	ImageData    string   // Base64 encoded image data
+	ImageData    string   // Image path
+	ImagePath    string
 	Screenshots  []string // Base64 encoded screenshot data
 	DownloadPath string   // Path on server for download
 	CreatedAt    string   // Timestamp when added
 }
 
 type Config struct {
-	Title   string `json:"title"`
-	Port    int    `json:"port"`
-	BaseURL string `json:"base_url"`
+	Title       string `json:"title"`
+	Port        int    `json:"port"`
+	BaseURL     string `json:"base_url"`
+	AdminUser   string `json:"admin_user"`
+	AdminPass   string `json:"admin_password"`
 }
 
 var db *sql.DB
 var config Config
+var templates *template.Template
 
 func main() {
+	// Parse templates once
+	templates = template.Must(template.ParseGlob("templates/*.html"))
+
 	// Load configuration
 	configFile, err := os.Open("./config.json")
 	if err != nil {
@@ -66,6 +72,7 @@ func main() {
 
 	createTables()
 	migrateDB()
+	migrateImages()
 
 	// Handle routes with normalized BaseURL
 	rootPath := config.BaseURL
@@ -77,16 +84,34 @@ func main() {
 		http.HandleFunc(config.BaseURL+"/", homeHandler)
 	}
 	http.HandleFunc(config.BaseURL+"/game/", gameHandler)
-	http.HandleFunc(config.BaseURL+"/upload", uploadHandler)
-	http.HandleFunc(config.BaseURL+"/upload-game", uploadGameHandler)
-	http.HandleFunc(config.BaseURL+"/edit/", editHandler)
-	http.HandleFunc(config.BaseURL+"/update-game/", updateGameHandler)
-	http.HandleFunc(config.BaseURL+"/delete/", deleteHandler)
+	http.HandleFunc(config.BaseURL+"/upload", basicAuth(uploadHandler))
+	http.HandleFunc(config.BaseURL+"/upload-game", basicAuth(uploadGameHandler))
+	http.HandleFunc(config.BaseURL+"/edit/", basicAuth(editHandler))
+	http.HandleFunc(config.BaseURL+"/update-game/", basicAuth(updateGameHandler))
+	http.HandleFunc(config.BaseURL+"/delete/", basicAuth(deleteHandler))
 	http.HandleFunc(config.BaseURL+"/download/", downloadHandler)
 	http.Handle(config.BaseURL+"/static/", http.StripPrefix(config.BaseURL+"/static/", http.FileServer(http.Dir("static"))))
+	http.Handle(config.BaseURL+"/uploads/", http.StripPrefix(config.BaseURL+"/uploads/", http.FileServer(http.Dir("uploads"))))
 
 	fmt.Printf("Server running on :%d with base URL %s\n", config.Port, config.BaseURL)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil))
+}
+
+
+func basicAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if config.AdminUser == "" || config.AdminPass == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		user, pass, ok := r.BasicAuth()
+		if !ok || user != config.AdminUser || pass != config.AdminPass {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	}
 }
 
 func createTables() {
@@ -96,6 +121,7 @@ func createTables() {
 		name TEXT NOT NULL,
 		description TEXT,
 		image_data BLOB,
+		image_path TEXT,
 		download_path TEXT,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -103,6 +129,7 @@ func createTables() {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		game_id INTEGER,
 		image_data BLOB,
+		image_path TEXT,
 		FOREIGN KEY (game_id) REFERENCES games(id)
 	);`
 	_, err := db.Exec(query)
@@ -112,7 +139,45 @@ func createTables() {
 }
 
 // migrateDB adds new columns to existing databases that lack them.
-func migrateDB() {
+
+func migrateImages() {
+	os.MkdirAll("uploads/images", 0755)
+
+	// Migrate games
+	rows, err := db.Query("SELECT id, image_data FROM games WHERE image_data IS NOT NULL")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id int
+			var data []byte
+			if err := rows.Scan(&id, &data); err == nil && len(data) > 0 {
+				path := fmt.Sprintf("uploads/images/game_%d.jpg", id)
+				if err := os.WriteFile(path, data, 0644); err == nil {
+					db.Exec("UPDATE games SET image_path = ?, image_data = NULL WHERE id = ?", "/" + path, id)
+				}
+			}
+		}
+	}
+
+	// Migrate screenshots
+	sRows, err := db.Query("SELECT id, image_data FROM screenshots WHERE image_data IS NOT NULL")
+	if err == nil {
+		defer sRows.Close()
+		for sRows.Next() {
+			var id int
+			var data []byte
+			if err := sRows.Scan(&id, &data); err == nil && len(data) > 0 {
+				path := fmt.Sprintf("uploads/images/screenshot_%d.jpg", id)
+				if err := os.WriteFile(path, data, 0644); err == nil {
+					db.Exec("UPDATE screenshots SET image_path = ?, image_data = NULL WHERE id = ?", "/" + path, id)
+				}
+			}
+		}
+	}
+}
+
+func migrateDB()
+	migrateImages() {
 	// Check if created_at column exists
 	rows, err := db.Query("PRAGMA table_info(games)")
 	if err != nil {
@@ -149,6 +214,26 @@ func migrateDB() {
 			log.Fatal("Error backfilling created_at:", err)
 		}
 		log.Println("Migration: added created_at column to games table")
+	
+	// Also add image_path if missing
+	hasImagePath := false
+	rows, _ = db.Query("PRAGMA table_info(games)")
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull int
+		var dfltValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+			if name == "image_path" { hasImagePath = true }
+		}
+	}
+	rows.Close()
+	if !hasImagePath {
+		db.Exec("ALTER TABLE games ADD COLUMN image_path TEXT")
+		db.Exec("ALTER TABLE screenshots ADD COLUMN image_path TEXT")
+	}
+
 	}
 }
 
@@ -184,9 +269,10 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		orderClause = "ORDER BY created_at DESC"
 	}
 
-	query := fmt.Sprintf("SELECT id, name, image_data, created_at FROM games %s", orderClause)
-	rows, err := db.Query(query)
+	query := fmt.Sprintf("SELECT id, name, image_path, created_at FROM games %s", orderClause)
+	rows, err := db.QueryContext(r.Context(), query)
 	if err != nil {
+		log.Printf("homeHandler DB Query error: %v", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
@@ -195,14 +281,17 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 	var games []Game
 	for rows.Next() {
 		var g Game
-		var imageData []byte
+		var imagePath sql.NullString
 		var createdAt sql.NullString
-		if err := rows.Scan(&g.ID, &g.Name, &imageData, &createdAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &imagePath, &createdAt); err != nil {
+			log.Printf("homeHandler rows.Scan error: %v", err)
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
-		if imageData != nil {
-			g.ImageData = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageData)
+		if imagePath.Valid && imagePath.String != "" {
+			g.ImageData = config.BaseURL + imagePath.String
+		} else {
+			g.ImageData = ""
 		}
 		if createdAt.Valid {
 			g.CreatedAt = createdAt.String
@@ -210,12 +299,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 		games = append(games, g)
 	}
 
-	tmpl, err := template.ParseFiles("templates/index.html")
-	if err != nil {
-		http.Error(w, "Template error", http.StatusInternalServerError)
-		return
-	}
-	tmpl.Execute(w, struct {
+	err = templates.ExecuteTemplate(w, "index.html", struct {
 		Title   string
 		Games   []Game
 		BaseURL string
@@ -233,21 +317,22 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 func gameHandler(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, config.BaseURL+"/game/")
 	var game Game
-	var imageData []byte
+	var imagePath sql.NullString
 	var createdAt sql.NullString
-	err := db.QueryRow("SELECT id, name, description, image_data, download_path, created_at FROM games WHERE id = ?", idStr).Scan(&game.ID, &game.Name, &game.Description, &imageData, &game.DownloadPath, &createdAt)
+	err := db.QueryRowContext(r.Context(), "SELECT id, name, description, image_path, download_path, created_at FROM games WHERE id = ?", idStr).Scan(&game.ID, &game.Name, &game.Description, &imagePath, &game.DownloadPath, &createdAt)
 	if err != nil {
+		log.Printf("gameHandler QueryRow error: %v", err)
 		http.Error(w, "Game not found", http.StatusNotFound)
 		return
 	}
-	if imageData != nil {
-		game.ImageData = "data:image/jpeg;base64," + base64.StdEncoding.EncodeToString(imageData)
+	if imagePath.Valid && imagePath.String != "" {
+		game.ImageData = config.BaseURL + imagePath.String
 	}
 	if createdAt.Valid {
 		game.CreatedAt = createdAt.String
 	}
 
-	rows, err := db.Query("SELECT image_data FROM screenshots WHERE game_id = ?", idStr)
+	rows, err := db.Query("SELECT image_path FROM screenshots WHERE game_id = ?", idStr)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
@@ -255,22 +340,17 @@ func gameHandler(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var screenshotData []byte
-		if err := rows.Scan(&screenshotData); err != nil {
+		var sp sql.NullString
+		if err := rows.Scan(&sp); err != nil {
 			http.Error(w, "Database error", http.StatusInternalServerError)
 			return
 		}
-		if screenshotData != nil {
-			game.Screenshots = append(game.Screenshots, "data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString(screenshotData))
+		if sp.Valid && sp.String != "" {
+			game.Screenshots = append(game.Screenshots, config.BaseURL+sp.String)
 		}
 	}
 
-	tmpl, err := template.ParseFiles("templates/game.html")
-	if err != nil {
-		http.Error(w, "Template error", http.StatusInternalServerError)
-		return
-	}
-	tmpl.Execute(w, struct {
+	err = templates.ExecuteTemplate(w, "game.html", struct {
 		Title   string
 		Game    Game
 		BaseURL string
@@ -282,12 +362,7 @@ func gameHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("templates/upload.html")
-	if err != nil {
-		http.Error(w, "Template error", http.StatusInternalServerError)
-		return
-	}
-	tmpl.Execute(w, struct {
+	err := templates.ExecuteTemplate(w, "upload.html", struct {
 		Title   string
 		BaseURL string
 	}{
@@ -326,13 +401,20 @@ func uploadGameHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := db.Exec("INSERT INTO games (name, description, image_data, download_path, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)", name, description, imageData, downloadPath)
+	
+	result, err := db.Exec("INSERT INTO games (name, description, download_path, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)", name, description, downloadPath)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
-
+	
+	
 	gameID, _ := result.LastInsertId()
+	imagePath := fmt.Sprintf("/uploads/images/game_%d.jpg", gameID)
+	os.WriteFile("."+imagePath, imageData, 0644)
+	db.Exec("UPDATE games SET image_path = ? WHERE id = ?", imagePath, gameID)
+
+	
 
 	// Handle multiple screenshots
 	screenshotFiles, ok := r.MultipartForm.File["screenshots"]
@@ -352,7 +434,15 @@ func uploadGameHandler(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			_, err = db.Exec("INSERT INTO screenshots (game_id, image_data) VALUES (?, ?)", gameID, screenshotData)
+			
+			res, err := db.Exec("INSERT INTO screenshots (game_id) VALUES (?)", gameID)
+			if err == nil {
+				scID, _ := res.LastInsertId()
+				scPath := fmt.Sprintf("/uploads/images/screenshot_%d.jpg", scID)
+				os.WriteFile("."+scPath, screenshotData, 0644)
+				db.Exec("UPDATE screenshots SET image_path = ? WHERE id = ?", scPath, scID)
+			}
+
 			if err != nil {
 				continue
 			}
@@ -371,12 +461,7 @@ func editHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tmpl, err := template.ParseFiles("templates/edit.html")
-	if err != nil {
-		http.Error(w, "Template error", http.StatusInternalServerError)
-		return
-	}
-	tmpl.Execute(w, struct {
+	err = templates.ExecuteTemplate(w, "edit.html", struct {
 		Title   string
 		Game    Game
 		BaseURL string
@@ -418,7 +503,9 @@ func updateGameHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Update game details
 	if len(imageData) > 0 {
-		_, err = db.Exec("UPDATE games SET name = ?, description = ?, image_data = ?, download_path = ? WHERE id = ?", name, description, imageData, downloadPath, idStr)
+		imagePath := fmt.Sprintf("/uploads/images/game_%s.jpg", idStr)
+		os.WriteFile("."+imagePath, imageData, 0644)
+		_, err = db.Exec("UPDATE games SET name = ?, description = ?, image_path = ?, download_path = ? WHERE id = ?", name, description, imagePath, downloadPath, idStr)
 	} else {
 		_, err = db.Exec("UPDATE games SET name = ?, description = ?, download_path = ? WHERE id = ?", name, description, downloadPath, idStr)
 	}
@@ -447,9 +534,12 @@ func updateGameHandler(w http.ResponseWriter, r *http.Request) {
 					defer screenshotFile.Close()
 					screenshotData, err := io.ReadAll(screenshotFile)
 					if err == nil {
-						_, err = db.Exec("INSERT INTO screenshots (game_id, image_data) VALUES (?, ?)", idStr, screenshotData)
-						if err != nil {
-							log.Printf("Error inserting new screenshot: %v", err)
+						res, err := db.Exec("INSERT INTO screenshots (game_id) VALUES (?)", idStr)
+						if err == nil {
+							scID, _ := res.LastInsertId()
+							scPath := fmt.Sprintf("/uploads/images/screenshot_%d.jpg", scID)
+							os.WriteFile("."+scPath, screenshotData, 0644)
+							db.Exec("UPDATE screenshots SET image_path = ? WHERE id = ?", scPath, scID)
 						}
 					}
 				}
@@ -497,7 +587,15 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 	// Decode the path to handle spaces and special characters
 	decodedPath, err := url.QueryUnescape(downloadPath)
 	if err != nil {
+		log.Printf("downloadHandler QueryUnescape error: %v", err)
 		http.Error(w, "Invalid download path", http.StatusBadRequest)
+		return
+	}
+
+	cleanPath := filepath.Clean(decodedPath)
+	if strings.Contains(cleanPath, "..") {
+		log.Printf("downloadHandler path traversal attempt blocked: %s", cleanPath)
+		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
 
