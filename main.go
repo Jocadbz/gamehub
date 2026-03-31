@@ -143,34 +143,58 @@ func migrateImages() {
 	os.MkdirAll("uploads/images", 0755)
 
 	// Migrate games
+	type imgData struct {
+		id   int
+		data []byte
+	}
+	var gameImages []imgData
 	rows, err := db.Query("SELECT id, image_data FROM games WHERE image_data IS NOT NULL")
 	if err == nil {
-		defer rows.Close()
 		for rows.Next() {
 			var id int
 			var data []byte
 			if err := rows.Scan(&id, &data); err == nil && len(data) > 0 {
-				path := fmt.Sprintf("uploads/images/game_%d.jpg", id)
-				if err := os.WriteFile(path, data, 0644); err == nil {
-					db.Exec("UPDATE games SET image_path = ?, image_data = NULL WHERE id = ?", "/"+path, id)
-				}
+				gameImages = append(gameImages, imgData{id, data})
 			}
+		}
+		rows.Close()
+	}
+
+	for _, g := range gameImages {
+		path := fmt.Sprintf("uploads/images/game_%d.jpg", g.id)
+		if err := os.WriteFile(path, g.data, 0644); err == nil {
+			_, err = db.Exec("UPDATE games SET image_path = ?, image_data = NULL WHERE id = ?", "/"+path, g.id)
+			if err != nil {
+				log.Printf("Failed to update image_path for game %d: %v", g.id, err)
+			}
+		} else {
+			log.Printf("Failed to write image for game %d: %v", g.id, err)
 		}
 	}
 
 	// Migrate screenshots
+	var screenImages []imgData
 	sRows, err := db.Query("SELECT id, image_data FROM screenshots WHERE image_data IS NOT NULL")
 	if err == nil {
-		defer sRows.Close()
 		for sRows.Next() {
 			var id int
 			var data []byte
 			if err := sRows.Scan(&id, &data); err == nil && len(data) > 0 {
-				path := fmt.Sprintf("uploads/images/screenshot_%d.jpg", id)
-				if err := os.WriteFile(path, data, 0644); err == nil {
-					db.Exec("UPDATE screenshots SET image_path = ?, image_data = NULL WHERE id = ?", "/"+path, id)
-				}
+				screenImages = append(screenImages, imgData{id, data})
 			}
+		}
+		sRows.Close()
+	}
+
+	for _, s := range screenImages {
+		path := fmt.Sprintf("uploads/images/screenshot_%d.jpg", s.id)
+		if err := os.WriteFile(path, s.data, 0644); err == nil {
+			_, err = db.Exec("UPDATE screenshots SET image_path = ?, image_data = NULL WHERE id = ?", "/"+path, s.id)
+			if err != nil {
+				log.Printf("Failed to update image_path for screenshot %d: %v", s.id, err)
+			}
+		} else {
+			log.Printf("Failed to write image for screenshot %d: %v", s.id, err)
 		}
 	}
 }
@@ -181,7 +205,6 @@ func migrateDB() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer rows.Close()
 
 	hasCreatedAt := false
 	for rows.Next() {
@@ -197,6 +220,7 @@ func migrateDB() {
 			hasCreatedAt = true
 		}
 	}
+	rows.Close()
 
 	if !hasCreatedAt {
 		// SQLite does not allow ALTER TABLE ADD COLUMN with a non-constant
@@ -214,25 +238,60 @@ func migrateDB() {
 		log.Println("Migration: added created_at column to games table")
 	}
 
-	// Also add image_path if missing
-	hasImagePath := false
-	rows, _ = db.Query("PRAGMA table_info(games)")
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull int
-		var dfltValue sql.NullString
-		var pk int
-		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
-			if name == "image_path" {
-				hasImagePath = true
+	// Ensure image_path exists on games
+	var hasGamesImagePath bool
+	rowsGames, err := db.Query("PRAGMA table_info(games)")
+	if err == nil {
+		for rowsGames.Next() {
+			var cid int
+			var name, ctype string
+			var notnull int
+			var dfltValue sql.NullString
+			var pk int
+			if err := rowsGames.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+				if name == "image_path" {
+					hasGamesImagePath = true
+				}
 			}
 		}
+		rowsGames.Close()
 	}
-	rows.Close()
-	if !hasImagePath {
-		db.Exec("ALTER TABLE games ADD COLUMN image_path TEXT")
-		db.Exec("ALTER TABLE screenshots ADD COLUMN image_path TEXT")
+
+	if !hasGamesImagePath {
+		_, err := db.Exec("ALTER TABLE games ADD COLUMN image_path TEXT")
+		if err != nil {
+			log.Printf("Error adding image_path to games: %v", err)
+		} else {
+			log.Println("Migration: added image_path to games")
+		}
+	}
+
+	// Ensure image_path exists on screenshots
+	var hasScreenshotsImagePath bool
+	rowsScreenshots, err := db.Query("PRAGMA table_info(screenshots)")
+	if err == nil {
+		for rowsScreenshots.Next() {
+			var cid int
+			var name, ctype string
+			var notnull int
+			var dfltValue sql.NullString
+			var pk int
+			if err := rowsScreenshots.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+				if name == "image_path" {
+					hasScreenshotsImagePath = true
+				}
+			}
+		}
+		rowsScreenshots.Close()
+	}
+
+	if !hasScreenshotsImagePath {
+		_, err := db.Exec("ALTER TABLE screenshots ADD COLUMN image_path TEXT")
+		if err != nil {
+			log.Printf("Error adding image_path to screenshots: %v", err)
+		} else {
+			log.Println("Migration: added image_path to screenshots")
+		}
 	}
 
 }
