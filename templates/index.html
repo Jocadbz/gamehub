@@ -1,181 +1,171 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" x-data="appData()" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
-    <link rel="stylesheet" href="{{.BaseURL}}/static/css/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        steam: {
+                            base: '#1b2838',
+                            nav: '#171a21',
+                            surface: '#202d39',
+                            surfaceHover: '#2a475e',
+                            text: '#c7d5e0',
+                            textLight: '#ffffff',
+                            accent: '#66c0f4',
+                            green: '#749e15',
+                            greenHover: '#8ed518',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        body { background-color: #1b2838; color: #c7d5e0; }
+        ::-webkit-scrollbar { width: 14px; }
+        ::-webkit-scrollbar-track { background: #171a21; }
+        ::-webkit-scrollbar-thumb { background: #434953; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: #66c0f4; }
+    </style>
 </head>
-<body>
-    <header>
-        <h1><a href="{{.BaseURL}}">{{.Title}}</a></h1>
-        <nav>
-            <a href="{{.BaseURL}}">Home</a>
-            <a href="{{.BaseURL}}/upload">Upload Game</a>
-            <button class="theme-toggle" id="themeToggle" title="Toggle dark mode">
-                <span id="themeIcon">&#9790;</span>
-            </button>
-        </nav>
+<body class="min-h-screen font-sans antialiased flex flex-col selection:bg-steam-accent selection:text-white">
+    <!-- Navbar -->
+    <header class="bg-steam-nav shadow-lg sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-[104px]">
+                <!-- Logo -->
+                <div class="flex-shrink-0 flex items-center">
+                    <a href="{{.BaseURL}}" class="text-3xl font-extrabold tracking-widest text-steam-textLight uppercase flex items-center gap-3">
+                        <svg class="w-10 h-10 text-white" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.59c-.58 0-1.05.47-1.05 1.05 0 .58.47 1.05 1.05 1.05.58 0 1.05-.47 1.05-1.05 0-.58-.47-1.05-1.05-1.05zm-3.64 4.54c-1.38 0-2.5 1.12-2.5 2.5s1.12 2.5 2.5 2.5 2.5-1.12 2.5-2.5-1.12-2.5-2.5-2.5zm-5.59-3.09c-.58 0-1.05.47-1.05 1.05 0 .58.47 1.05 1.05 1.05.58 0 1.05-.47 1.05-1.05 0-.58-.47-1.05-1.05-1.05z"/>
+                        </svg>
+                        {{.Title}}
+                    </a>
+                </div>
+                
+                <!-- Nav Links -->
+                <nav class="flex items-center space-x-8">
+                    <a href="{{.BaseURL}}" class="text-[#dcdedf] hover:text-white font-medium uppercase text-sm tracking-[0.1em] hover:border-b-2 border-steam-accent pb-1 transition-all">Store</a>
+                    <a href="{{.BaseURL}}" class="text-steam-accent hover:text-white font-medium uppercase text-sm tracking-[0.1em] border-b-2 border-steam-accent pb-1 transition-all">Library</a>
+                    <a href="{{.BaseURL}}/upload" class="bg-[#5c7e10] hover:bg-[#7cb022] text-white font-medium px-5 py-2 rounded-sm text-sm uppercase tracking-wider transition-colors shadow-sm">Add Game</a>
+                </nav>
+            </div>
+        </div>
     </header>
 
-    <div class="toolbar">
-        <div class="toolbar-group">
-            <span class="toolbar-label">Sort</span>
-            <select id="sortSelect">
-                <option value="date-desc" {{if and (eq .Sort "date") (eq .Order "desc")}}selected{{end}}>Newest first</option>
-                <option value="date-asc" {{if and (eq .Sort "date") (eq .Order "asc")}}selected{{end}}>Oldest first</option>
-                <option value="name-asc" {{if and (eq .Sort "name") (eq .Order "asc")}}selected{{end}}>Name A-Z</option>
-                <option value="name-desc" {{if and (eq .Sort "name") (eq .Order "desc")}}selected{{end}}>Name Z-A</option>
-            </select>
-        </div>
+    <!-- Sub-header/Toolbar -->
+    <div class="bg-steam-surface/40 border-b border-steam-surfaceHover/20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row gap-4 justify-between items-center">
+            <!-- Search -->
+            <div class="relative w-full max-w-sm">
+                <input type="text" x-model="searchQuery" @input="filterGames" class="w-full bg-[#316282]/30 border border-[#316282]/50 text-white text-sm rounded-sm shadow-inner px-4 py-1.5 focus:outline-none focus:bg-[#316282]/50 transition-colors placeholder-[#316282]" placeholder="search by name..." autocomplete="off">
+                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                    <svg class="h-4 w-4 text-[#316282]" fill="currentColor" viewBox="0 0 20 20"><path d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd" fill-rule="evenodd"></path></svg>
+                </div>
+            </div>
 
-        <div class="toolbar-separator"></div>
-
-        <input type="text" class="search-input" id="searchInput" placeholder="Search games..." autocomplete="off">
-
-        <div class="toolbar-separator"></div>
-
-        <div class="toolbar-group">
-            <span class="toolbar-label">View</span>
-            <div class="view-toggle">
-                <button class="view-btn active" id="gridViewBtn" title="Grid view">&#9638;</button>
-                <button class="view-btn" id="listViewBtn" title="List view">&#9776;</button>
+            <!-- Sort -->
+            <div class="flex items-center space-x-2 w-full sm:w-auto">
+                <span class="text-xs text-[#4f94bc] uppercase tracking-wider">Sort by</span>
+                <select id="sortSelect" @change="sortChanged($event)" class="bg-[#10141b] border-none text-steam-accent text-sm rounded-sm focus:outline-none py-1 px-2 cursor-pointer shadow-inner">
+                    <option value="date-desc" {{if and (eq .Sort "date") (eq .Order "desc")}}selected{{end}}>Release Date</option>
+                    <option value="date-asc" {{if and (eq .Sort "date") (eq .Order "asc")}}selected{{end}}>Oldest</option>
+                    <option value="name-asc" {{if and (eq .Sort "name") (eq .Order "asc")}}selected{{end}}>Name (A-Z)</option>
+                    <option value="name-desc" {{if and (eq .Sort "name") (eq .Order "desc")}}selected{{end}}>Name (Z-A)</option>
+                </select>
             </div>
         </div>
-
-        <span class="game-count" id="gameCount">{{len .Games}} game{{if ne (len .Games) 1}}s{{end}}</span>
     </div>
 
-    <main class="grid-container" id="gameContainer">
+    <!-- Main Content Grid -->
+    <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full">
         {{if .Games}}
-            {{range .Games}}
-            <div class="game-card" data-name="{{.Name}}" data-date="{{.CreatedAt}}">
-                <a href="{{$.BaseURL}}/game/{{.ID}}">
-                    <img src="{{.ImageData}}" alt="{{.Name}}" loading="lazy">
-                    <div class="list-card-info">
-                        <h2>{{.Name}}</h2>
-                        <span class="card-date">{{.CreatedAt}}</span>
-                    </div>
-                </a>
+            <div class="mb-4 text-xs tracking-wider text-[#4f94bc] uppercase" x-text="`Showing ${visibleCount} matches`">
+                Showing {{len .Games}} matches
             </div>
-            {{end}}
+
+            <!-- Steam Grid (Vertical Caps) -->
+            <div id="gameContainer" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
+                {{range .Games}}
+                <div class="game-card group relative bg-steam-surfaceHover rounded-sm shadow-lg hover:shadow-2xl transition-all duration-200 cursor-pointer overflow-hidden transform hover:-translate-y-1 hover:ring-2 hover:ring-[#66c0f4]/50" data-name="{{.Name}}">
+                    <a href="{{$.BaseURL}}/game/{{.ID}}" class="block w-full h-full flex flex-col">
+                        <!-- Portrait Cover Container (Steam grid is typically 600x900 aspect ratio) -->
+                        <div class="relative w-full aspect-[2/3] overflow-hidden bg-[#10141b]">
+                            <img src="{{.ImageData}}" alt="{{.Name}}" loading="lazy" class="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105">
+                            
+                            <!-- Overlay gradient -->
+                            <div class="absolute inset-0 bg-gradient-to-t from-[#10141b] via-transparent to-transparent opacity-60 group-hover:opacity-20 transition-opacity duration-300"></div>
+                        </div>
+                        
+                        <!-- Details -->
+                        <div class="p-2 sm:p-3 bg-gradient-to-b from-steam-surfaceHover to-[#10141b] flex-grow flex flex-col justify-end">
+                            <h2 class="text-sm font-semibold text-[#dcdedf] truncate group-hover:text-white tracking-wide" title="{{.Name}}">{{.Name}}</h2>
+                            <div class="flex justify-between items-center mt-1">
+                                <span class="text-[10px] text-[#4f94bc] uppercase tracking-wider">{{.CreatedAt}}</span>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+                {{end}}
+            </div>
+            
+            <div x-show="visibleCount === 0" x-cloak class="text-center py-24 bg-[#10141b]/50 rounded mt-8 border border-steam-surfaceHover/20">
+                <p class="text-[#8f98a0] text-lg">No games found matching your search.</p>
+            </div>
+            
         {{else}}
-            <div class="empty-state">
-                <h2>No games yet</h2>
-                <p>Get started by <a href="{{.BaseURL}}/upload">uploading your first game</a>.</p>
+            <div class="text-center py-32 bg-[#10141b]/50 rounded border border-steam-surfaceHover/20 shadow-inner">
+                <svg class="mx-auto h-16 w-16 text-[#316282] mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                <h3 class="text-3xl text-white mb-2 font-light tracking-wide">Your library is empty</h3>
+                <p class="text-[#8f98a0] mb-8">Start building your collection by adding your first game.</p>
+                <a href="{{.BaseURL}}/upload" class="inline-block bg-gradient-to-r from-[#749e15] to-[#54790d] text-[#d2efa9] hover:text-white font-bold py-3 px-8 rounded-sm shadow-lg hover:shadow-xl hover:scale-105 transition-all uppercase tracking-[0.2em] text-sm">
+                    Add a Game
+                </a>
             </div>
         {{end}}
     </main>
 
-    <div class="no-results" id="noResults">No games match your search.</div>
-
     <script>
-    (function() {
-        // === Theme Toggle ===
-        const themeToggle = document.getElementById('themeToggle');
-        const themeIcon = document.getElementById('themeIcon');
-        const html = document.documentElement;
-
-        function setTheme(theme) {
-            html.setAttribute('data-theme', theme);
-            localStorage.setItem('theme', theme);
-            // Moon for light (click to go dark), Sun for dark (click to go light)
-            themeIcon.innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;';
-        }
-
-        // Load saved theme or respect system preference
-        const saved = localStorage.getItem('theme');
-        if (saved) {
-            setTheme(saved);
-        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            setTheme('dark');
-        }
-
-        themeToggle.addEventListener('click', function() {
-            const current = html.getAttribute('data-theme');
-            setTheme(current === 'dark' ? 'light' : 'dark');
-        });
-
-        // === Sort ===
-        const sortSelect = document.getElementById('sortSelect');
-        sortSelect.addEventListener('change', function() {
-            const parts = this.value.split('-');
-            const url = new URL(window.location);
-            url.searchParams.set('sort', parts[0]);
-            url.searchParams.set('order', parts[1]);
-            window.location.href = url.toString();
-        });
-
-        // === View Toggle ===
-        const gridBtn = document.getElementById('gridViewBtn');
-        const listBtn = document.getElementById('listViewBtn');
-        const container = document.getElementById('gameContainer');
-
-        function setView(view) {
-            localStorage.setItem('view', view);
-            if (view === 'list') {
-                container.classList.remove('grid-container');
-                container.classList.add('list-container');
-                listBtn.classList.add('active');
-                gridBtn.classList.remove('active');
-            } else {
-                container.classList.remove('list-container');
-                container.classList.add('grid-container');
-                gridBtn.classList.add('active');
-                listBtn.classList.remove('active');
-            }
-        }
-
-        // Load saved view preference
-        const savedView = localStorage.getItem('view');
-        if (savedView) {
-            setView(savedView);
-        }
-
-        gridBtn.addEventListener('click', function() { setView('grid'); });
-        listBtn.addEventListener('click', function() { setView('list'); });
-
-        // === Search / Filter ===
-        const searchInput = document.getElementById('searchInput');
-        const gameCount = document.getElementById('gameCount');
-        const noResults = document.getElementById('noResults');
-        const cards = document.querySelectorAll('.game-card');
-
-        searchInput.addEventListener('input', function() {
-            const query = this.value.toLowerCase().trim();
-            let visible = 0;
-
-            cards.forEach(function(card) {
-                const name = (card.getAttribute('data-name') || '').toLowerCase();
-                if (!query || name.includes(query)) {
-                    card.style.display = '';
-                    visible++;
-                } else {
-                    card.style.display = 'none';
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('appData', () => ({
+                searchQuery: '',
+                visibleCount: {{len .Games}},
+                
+                sortChanged(event) {
+                    const parts = event.target.value.split('-');
+                    const url = new URL(window.location);
+                    url.searchParams.set('sort', parts[0]);
+                    url.searchParams.set('order', parts[1]);
+                    window.location.href = url.toString();
+                },
+                
+                filterGames() {
+                    const query = this.searchQuery.toLowerCase().trim();
+                    let count = 0;
+                    
+                    document.querySelectorAll('.game-card').forEach(card => {
+                        const name = (card.getAttribute('data-name') || '').toLowerCase();
+                        if (!query || name.includes(query)) {
+                            card.style.display = '';
+                            count++;
+                        } else {
+                            card.style.display = 'none';
+                        }
+                    });
+                    
+                    this.visibleCount = count;
                 }
-            });
-
-            gameCount.textContent = visible + ' game' + (visible !== 1 ? 's' : '');
-            if (visible === 0 && cards.length > 0) {
-                noResults.classList.add('visible');
-            } else {
-                noResults.classList.remove('visible');
-            }
+            }));
         });
-
-        // === Keyboard shortcut: focus search with / ===
-        document.addEventListener('keydown', function(e) {
-            if (e.key === '/' && document.activeElement !== searchInput) {
-                e.preventDefault();
-                searchInput.focus();
-            }
-            if (e.key === 'Escape' && document.activeElement === searchInput) {
-                searchInput.value = '';
-                searchInput.dispatchEvent(new Event('input'));
-                searchInput.blur();
-            }
-        });
-    })();
     </script>
 </body>
 </html>
